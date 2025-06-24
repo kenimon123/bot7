@@ -113,6 +113,11 @@ const client = new Client({
   partials: [Partials.Message, Partials.Channel, Partials.Reaction]
 });
 
+console.log('Cargando eventos del sistema...');
+const eventHandler = require('./handlers/eventHandler');
+eventHandler(client);
+console.log('✅ Eventos cargados correctamente');
+
 // Cargar configuración
 let config = {};
 const configPath = path.join(__dirname, 'config.json');
@@ -443,7 +448,7 @@ client.on('interactionCreate', async interaction => {
           antiDuplicateCache.clear(userId, actionType);
           return interaction.reply({ 
             content: `Por favor espera ${timeLeft.toFixed(1)} segundos antes de usar el comando \`${command.data.name}\` nuevamente.`, 
-            ephemeral: true 
+            flags: 64 
           }).catch(() => {});
         }
       }
@@ -1050,6 +1055,11 @@ process.on('uncaughtException', (error) => {
 process.on('unhandledRejection', (reason, promise) => {
   console.error('Rechazo no manejado:', reason);
 });
+
+// Cargar eventos UNA SOLA VEZ (fuera de cualquier evento)
+const eventHandler = require('./handlers/eventHandler');
+eventHandler(client);
+console.log('Eventos cargados una sola vez');
 
 // Iniciar sesión con el token
 client.login(process.env.TOKEN)
