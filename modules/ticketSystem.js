@@ -13,6 +13,7 @@ const {
 module.exports = (client) => {
   // Rutas de los archivos
   const ticketReminders = require("./ticketReminders");
+  const ticketLock = require('./ticketLock');
   const ticketsPath = path.join(__dirname, "../data/tickets.json");
   const statsPath = path.join(__dirname, "../data/ticketStats.json");
 
@@ -35,6 +36,9 @@ const isTicketChannel = (channel) => {
   const recentTicketRequests = new Map();
   const closingTickets = new Map();
   const activeTicketCreations = new Set();
+  const ticketLocks = new Map();
+  const fs = require('fs');
+  const path = require('path');
   const pendingTicketCreations = new Map();
 
   // Cargar tickets
@@ -383,7 +387,7 @@ const createTicket = async (options) => {
       // Llamada con objeto de opciones (desde el modal)
       guild = options.guild;
       user = options.user;
-      reason = "Ticket creado desde formulario";
+      reason = options.reason || "Ticket creado desde formulario";
       categoryType = options.category;
       additionalInfo = {
         minecraftNick: options.minecraftNick,
@@ -398,8 +402,22 @@ const createTicket = async (options) => {
       additionalInfo = arguments[4];
     }
 
+    // SISTEMA DE BLOQUEO CRÍTICO - Verificar si el usuario ya tiene un bloqueo activo
+    if (ticketLock.isLocked(user.id)) {
+      console.log(`[TICKET] Creación bloqueada para ${user.tag || user.username} - tiene un bloqueo activo`);
+      return {
+        success: false,
+        reason: "duplicate_request",
+        message: "Ya hay una solicitud de ticket en proceso. Por favor, espera unos segundos."
+      };
+    }
+    
+    // Crear un bloqueo para este usuario
+    ticketLock.createLock(user.id, 15); // Bloquear por 15 segundos
+    
     // Verificaciones de seguridad
     if (!guild) {
+      ticketLock.releaseLock(user.id); // Liberar bloqueo en caso de error
       console.error("Error: Guild no proporcionado al crear ticket");
       return {
         success: false,
@@ -409,6 +427,7 @@ const createTicket = async (options) => {
     }
     
     if (!user) {
+      ticketLock.releaseLock(user.id); // Liberar bloqueo en caso de error
       console.error("Error: Usuario no proporcionado al crear ticket");
       return {
         success: false, 
@@ -417,8 +436,65 @@ const createTicket = async (options) => {
       };
     }
     
+    // Verificar límite de tickets por usuario (configurable)
+    const maxTicketsPerUser = client.config.maxTicketsPerUser || 3;
+    
+    // Cargar tickets existentes
+    const data = loadTickets();
+    
+    // VERIFICACIÓN ADICIONAL: comprobar si ya existe un ticket abierto para este usuario en esta categoría
+    const existingTicket = data.tickets.find(
+      t => t.userId === user.id && 
+          t.status === "open" && 
+          t.category === categoryType &&
+          t.guildId === guild.id
+    );
+    
+    if (existingTicket) {
+      ticketLock.releaseLock(user.id); // Liberar bloqueo
+      return {
+        success: false,
+        reason: "duplicate_ticket",
+        message: `Ya tienes un ticket abierto en esta categoría: <#${existingTicket.channelId}>`
+      };
+    }
+    
+    // Contar tickets abiertos del usuario
+    const userOpenTickets = data.tickets.filter(
+      t => t.userId === user.id && 
+          t.status === "open" &&
+          t.guildId === guild.id
+    );
+    
+    if (userOpenTickets.length >= maxTicketsPerUser) {
+      ticketLock.releaseLock(user.id);
+      return {
+        success: false,
+        reason: "ticket_limit",
+        message: `Solo puedes tener ${maxTicketsPerUser} tickets abiertos al mismo tiempo.`
+      };
+    }
+    
+    // VERIFICACIÓN DE TICKET RECIENTE: evitar spam de creación en la misma categoría
+    const recentTickets = data.tickets.filter(
+      t => t.userId === user.id && 
+          t.category === categoryType &&
+          t.guildId === guild.id &&
+          (new Date() - new Date(t.createdAt)) < 60000 // Creado en el último minuto
+    );
+    
+    if (recentTickets.length > 0) {
+      ticketLock.releaseLock(user.id);
+      return {
+        success: false,
+        reason: "rate_limit",
+        message: "Has creado un ticket en esta categoría recientemente. Por favor, espera un momento."
+      };
+    }
+
     // Asegurarse de que guild.channels existe
     if (!guild.channels || !guild.channels.cache) {
+      ticketLock.releaseLock(user.id);
       console.error("Error: guild.channels no disponible");
       return {
         success: false,
@@ -426,9 +502,6 @@ const createTicket = async (options) => {
         message: "Error interno: canales del servidor no disponibles"
       };
     }
-
-    // Preparamos los datos del ticket
-    const data = loadTickets();
 
     // Incrementar contador de tickets
     data.counter += 1;
@@ -480,6 +553,7 @@ const createTicket = async (options) => {
         );
 
         if (!categoryChannel) {
+          ticketLock.releaseLock(user.id);
           return {
             success: false,
             reason: "category_error",
@@ -526,12 +600,13 @@ const createTicket = async (options) => {
       });
     }
 
-    // Crear el canal - IMPORTANTE: Esta es la línea que crea la variable channel
+    // Crear el canal
     let channel;
     try {
       channel = await guild.channels.create(channelOptions);
       
       if (!channel) {
+        ticketLock.releaseLock(user.id);
         return {
           success: false,
           reason: "channel_error",
@@ -539,20 +614,13 @@ const createTicket = async (options) => {
         };
       }
     } catch (channelError) {
+      ticketLock.releaseLock(user.id);
       console.error("Error al crear canal de ticket:", channelError);
       return {
         success: false,
         reason: "channel_error",
         message: "Error al crear el canal de ticket: " + (channelError.message || "Error desconocido")
       };
-    }
-
-    // Configurar permisos específicos por categoría
-    try {
-      await setupCategoryPermissions(channel, categoryType, guild);
-    } catch (permError) {
-      console.error("Error al configurar permisos:", permError);
-      // No fallar por esto, continuar
     }
 
     // Guardar información del ticket
@@ -587,6 +655,7 @@ const createTicket = async (options) => {
         console.error("Error al eliminar canal por fallo en guardado:", deleteError);
       }
       
+      ticketLock.releaseLock(user.id);
       return {
         success: false,
         reason: "save_error",
@@ -658,8 +727,9 @@ const createTicket = async (options) => {
 
     // Enviar mensaje inicial
     try {
+      const supportRoleId = guild.roles.cache.find(r => r.name === client.config.supportRole)?.id || '';
       await channel.send({
-        content: `<@${user.id}> | <@&${guild.roles.cache.find(r => r.name === client.config.supportRole)?.id || ''}>`,
+        content: `<@${user.id}>${supportRoleId ? ` | <@&${supportRoleId}>` : ''}`,
         embeds: [embed],
         components: [row]
       });
@@ -680,7 +750,22 @@ const createTicket = async (options) => {
       // No fallar por esto, continuar
     }
 
-    console.log(`[TICKET] Ticket #${ticketNumber} creado exitosamente para ${user.tag}`);
+    // Actualizar estadísticas
+    try {
+      updateTicketStats(guild.id, {
+        action: "create",
+        userId: user.id,
+        category: categoryType,
+      });
+    } catch (statsError) {
+      console.error("Error al actualizar estadísticas:", statsError);
+      // No fallar por esto, continuar
+    }
+
+    console.log(`[TICKET] Ticket #${ticketNumber} creado exitosamente para ${user.tag || user.username}`);
+    
+    // Liberar bloqueo después de éxito
+    ticketLock.releaseLock(user.id);
     
     // Devolver resultado con formato adecuado
     return {
@@ -689,6 +774,11 @@ const createTicket = async (options) => {
       ticketId: ticketNumber
     };
   } catch (error) {
+    // Asegurarse de liberar el bloqueo en caso de error
+    if (user && user.id) {
+      ticketLock.releaseLock(user.id);
+    }
+    
     console.error("Error crítico al crear ticket:", error);
     return {
       success: false,
@@ -697,8 +787,7 @@ const createTicket = async (options) => {
     };
   }
 };
-
-// Sistema de tickets - función de cierre mejorada
+// Sistema de tickets - función de cierre
 const closeTicket = async (channel, closedBy) => {
   try {
     if (!channel || !closedBy) {
@@ -822,13 +911,62 @@ const closeTicket = async (channel, closedBy) => {
       };
     }
 
-    // Resto del código para generar la transcripción, enviar mensajes, etc.
-    // [...]
+    // Enviar mensaje con temporizador
+    const CLOSE_DELAY_SECONDS = 5;
+    const embed = new EmbedBuilder()
+      .setTitle(`Ticket #${ticket.id} - En proceso de cierre`)
+      .setColor('#FF0000')
+      .setDescription(`Este ticket se cerrará en **${CLOSE_DELAY_SECONDS} segundos**.\nGracias por usar nuestro sistema de soporte.`)
+      .setTimestamp();
+    
+    await channel.send({ embeds: [embed] });
 
-    // Eliminar el canal después de un tiempo de espera
+    // Mostrar un mensaje de cuenta regresiva cada segundo
+    for (let i = CLOSE_DELAY_SECONDS - 1; i > 0; i--) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      await channel.send(`⏱️ **${i}** segundos hasta el cierre...`);
+    }
+
+    // Eliminar el canal después de la cuenta regresiva
     setTimeout(async () => {
       try {
         if (channel.guild && channel.guild.channels.cache.has(channel.id)) {
+          await channel.send('🔒 Cerrando ticket...');
+          
+          // Intentar generar una transcripción si existe el módulo
+          try {
+            const transcriptModule = require('./ticketTranscript')(client);
+            if (transcriptModule && typeof transcriptModule.generateTranscript === 'function') {
+              const transcript = await transcriptModule.generateTranscript(channel);
+              
+              if (transcript) {
+                // Buscar canal de logs
+                const logChannelName = client.config.ticketLogChannel;
+                const logChannel = channel.guild.channels.cache.find(c => c.name === logChannelName);
+                
+                if (logChannel && transcript.file) {
+                  const logEmbed = new EmbedBuilder()
+                    .setTitle(`Ticket #${ticket.id} - Cerrado`)
+                    .setColor('#FF5500')
+                    .setDescription(`El ticket fue cerrado por <@${closedBy.id}>`)
+                    .addFields(
+                      { name: 'Usuario', value: `<@${ticket.userId}>`, inline: true },
+                      { name: 'Categoría', value: ticket.category || 'No especificada', inline: true }
+                    )
+                    .setTimestamp();
+                  
+                  await logChannel.send({ 
+                    embeds: [logEmbed],
+                    files: [transcript.file]
+                  });
+                }
+              }
+            }
+          } catch (transcriptError) {
+            console.error("Error al generar transcripción:", transcriptError);
+          }
+          
+          // Eliminar el canal
           await channel.delete("Ticket cerrado");
         }
       } catch (deleteError) {
@@ -837,7 +975,7 @@ const closeTicket = async (channel, closedBy) => {
         // Siempre liberar el bloqueo
         antiDuplicate.release(closedBy.id, lockKey);
       }
-    }, 5000);
+    }, 1000); // Esperar un segundo más después de la cuenta regresiva
 
     return { success: true };
     
@@ -860,85 +998,108 @@ const closeTicket = async (channel, closedBy) => {
 };
 
   // Reclamar un ticket
-  const claimTicket = async (channel, user) => {
+const claimTicket = async (channel, user) => {
+  try {
+    if (!channel || !user) {
+      return {
+        success: false,
+        reason: "Parámetros inválidos: se requiere un canal y un usuario"
+      };
+    }
+
+    // Usar la función de validación
+    if (!isTicketChannel(channel)) {
+      return {
+        success: false,
+        reason: "Este canal no es un ticket válido"
+      };
+    }
+
+    const data = loadTickets();
+    const ticket = data.tickets.find(
+      (t) => t.channelId === channel.id && t.status === "open"
+    );
+
+    if (!ticket) {
+      return {
+        success: false,
+        reason: "No se encontró un ticket activo asociado a este canal"
+      };
+    }
+
     try {
-      if (!channel || !user) {
-        return false;
+      const member = await channel.guild.members.fetch(user.id);
+      
+      // Verificar si es el creador del ticket
+      const isTicketCreator = ticket.userId === user.id;
+
+      // Los administradores o el personal de soporte puede reclamar tickets
+      // También permitimos que el creador reclame su propio ticket
+      const permissionHandler = require('./permissionHandler')(client);
+      const hasPermission = permissionHandler.canManageTickets(member) || isTicketCreator;
+
+      if (!hasPermission) {
+        return {
+          success: false,
+          reason: `Necesitas el rol ${client.config.supportRole} para reclamar tickets`
+        };
       }
 
-      // Usar la nueva función de validación
-      if (!isTicketChannel(channel)) {
-        return false;
+      // Si ya está reclamado por el mismo usuario, no hacer nada
+      if (ticket.claimedBy === user.id) {
+        return {
+          success: true,
+          reason: "Ya has reclamado este ticket anteriormente"
+        };
       }
 
-      const data = loadTickets();
-      const ticket = data.tickets.find(
-        (t) => t.channelId === channel.id && t.status === "open"
-      );
+      // Si está reclamado por otro, notificar cambio
+      if (ticket.claimedBy) {
+        const embed = new EmbedBuilder()
+          .setColor("#FFA500")
+          .setTitle(`Ticket #${ticket.id} - Cambio de Encargado`)
+          .setDescription(`Este ticket ahora es atendido por ${user.tag}`)
+          .setTimestamp();
 
-      if (!ticket) return false;
-
-      // Simplificar verificación de permisos
-      try {
-        const member = await channel.guild.members.fetch(user.id);
-
-        // Los administradores siempre pueden reclamar tickets
-        if (!member.permissions.has(PermissionFlagsBits.Administrator)) {
-          // Si no es admin, verificar rol de soporte
-          const supportRole = channel.guild.roles.cache.find(
-            (r) => r.name === client.config.supportRole
-          );
-          if (!supportRole || !member.roles.cache.has(supportRole.id)) {
-            return false;
-          }
-        }
-
-        // Si ya está reclamado por el mismo usuario, no hacer nada
-        if (ticket.claimedBy === user.id) {
-          return true;
-        }
-
-        // Si está reclamado por otro, notificar cambio
-        if (ticket.claimedBy) {
-          const embed = new EmbedBuilder()
-            .setColor("#FFA500")
-            .setTitle(`Ticket #${ticket.id} - Cambio de Encargado`)
-            .setDescription(`Este ticket ahora es atendido por ${user.tag}`)
-            .setTimestamp();
-
-          await channel.send({ embeds: [embed] });
-        }
-
-        // Actualizar reclamante
-        ticket.claimedBy = user.id;
-        saveTickets(data);
-
-        // Actualizar estadísticas
-        updateUserStats(user.id, "claim");
-
-        // Registrar en logs
-        logTicketAction(channel.guild, {
-          action: "claim",
-          ticket: ticket,
-          user: user,
-        });
-
-        ticket.claimedBy = user.id;
-        saveTickets(data);
-
-        const reminderSystem = require("./ticketReminders")(client);
-        reminderSystem.updateTicketActivity(channel.id, user.id);
-
-        return true;
-      } catch (error) {
-        console.error("Error al reclamar ticket:", error);
-        return false;
+        await channel.send({ embeds: [embed] });
       }
+
+      // Actualizar reclamante
+      ticket.claimedBy = user.id;
+      saveTickets(data);
+
+      // Actualizar estadísticas
+      updateUserStats(user.id, "claim", channel.guild.id);
+
+      // Registrar en logs
+      logTicketAction(channel.guild, {
+        action: "claim",
+        ticket: ticket,
+        user: user,
+      });
+
+      // Actualizar actividad del ticket
+      const reminderSystem = require("./ticketReminders")(client);
+      reminderSystem.updateTicketActivity(channel.id, user.id);
+
+      return {
+        success: true
+      };
     } catch (error) {
       console.error("Error al reclamar ticket:", error);
-      return false;
+      return {
+        success: false,
+        reason: "Error interno al procesar la solicitud: " + error.message
+      };
     }
-  };
+  } catch (error) {
+    console.error("Error crítico al reclamar ticket:", error);
+    return {
+      success: false,
+      reason: "Error interno al procesar la solicitud"
+    };
+  }
+};
 
   // Registrar acción de ticket en canal de logs
   const logTicketAction = async (guild, logData) => {
