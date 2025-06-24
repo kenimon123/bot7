@@ -1,0 +1,51 @@
+{
+  "licenseRole": "License Manager",
+  "supportRole": "Staff",
+  "ticketCategory": "TICKETS",
+  "ticketLogChannel": "registro-tickets",
+  "ticketStatsChannel": "ranking-soporte",
+  "ticketCategories": [
+    { 
+      "name": "Soporte general", 
+      "emoji": "🔧", 
+      "description": "Ayuda general", 
+      "color": "#5865F2",
+      "allowedRoles": ["Support Team", "Moderador", "Admin"] 
+    },
+    { 
+      "name": "Reportes", 
+      "emoji": "🔴", 
+      "description": "Reportes de jugadores", 
+      "color": "#ED4245",
+      "allowedRoles": ["Support Team", "Moderador", "Admin", "Helper"]
+    },
+    { 
+      "name": "Apelaciones", 
+      "emoji": "⚖️", 
+      "description": "Apelaciones de sanciones", 
+      "color": "#FAA81A",
+      "allowedRoles": ["Admin", "Moderador"]
+    },
+    { 
+      "name": "Tienda", 
+      "emoji": "🛒", 
+      "description": "Soporte para compras", 
+      "color": "#57F287",
+      "allowedRoles": ["Support Team", "Admin", "Ventas"]
+    },
+    { 
+      "name": "Administración", 
+      "emoji": "⚙️", 
+      "description": "Temas administrativos", 
+      "color": "#9C84EF",
+      "allowedRoles": ["Admin"]
+    },
+    { 
+      "name": "Postulaciones", 
+      "emoji": "📋", 
+      "description": "Postulaciones al staff", 
+      "color": "#EB459E",
+      "allowedRoles": ["Admin", "Recruiter"]
+    }
+  ]
+}
