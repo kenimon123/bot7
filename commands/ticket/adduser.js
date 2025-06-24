@@ -22,7 +22,7 @@ module.exports = {
     if (!ticketSystem.isTicketChannel(interaction.channel)) {
       return await interaction.reply({
         content: "❌ Este comando solo puede usarse en un canal de ticket.",
-        ephemeral: true,
+        flags: 64,
       });
     }
 

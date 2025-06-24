@@ -17,7 +17,7 @@ module.exports = {
   category: 'license',
   
   async execute(interaction) {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: 64 });
     
     try {
       const licenseSystem = require('../../modules/licenseSystem')(interaction.client);

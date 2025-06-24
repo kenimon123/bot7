@@ -7,6 +7,34 @@ module.exports = (client) => {
   // Limpiar caché cada 5 minutos para roles actualizados
   setInterval(() => roleCache.clear(), 5 * 60 * 1000);
   
+  // Verificar si existe o crear rol de staff
+  const ensureStaffRole = async (guild) => {
+    try {
+      if (!guild) return null;
+      
+      // Verificar si el rol ya existe
+      let staffRole = guild.roles.cache.find(r => r.name === client.config.supportRole);
+      
+      // Si no existe, crearlo
+      if (!staffRole) {
+        console.log(`Creando rol de staff "${client.config.supportRole}" en ${guild.name}`);
+        
+        staffRole = await guild.roles.create({
+          name: client.config.supportRole,
+          color: '#00AA00',  // Verde
+          reason: 'Rol necesario para el sistema de tickets'
+        });
+        
+        console.log(`Rol "${client.config.supportRole}" creado con éxito.`);
+      }
+      
+      return staffRole;
+    } catch (error) {
+      console.error(`Error al crear/verificar rol de staff en ${guild.name}:`, error);
+      return null;
+    }
+  };
+  
   // Verificar si un miembro tiene permisos de soporte/staff
   const canManageTickets = (member) => {
     if (!member) return false;
@@ -135,6 +163,7 @@ module.exports = (client) => {
     canManageTickets,
     canManageLicenses,
     canInteractWithTicket,
+    ensureStaffRole,
     
     // Nueva función para depuración
     logPermissionCheck: (member, requiredRole) => {

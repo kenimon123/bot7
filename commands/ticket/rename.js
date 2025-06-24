@@ -10,7 +10,7 @@ module.exports = {
         .setDescription("Nuevo nombre para el ticket (sin el número)")
         .setRequired(true)
     )
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
   category: "ticket",
 
   async execute(interaction) {
@@ -22,11 +22,11 @@ module.exports = {
     if (!ticketSystem.isTicketChannel(interaction.channel)) {
       return await interaction.reply({
         content: "❌ Este comando solo puede usarse en un canal de ticket.",
-        ephemeral: true,
+        flags: 64
       });
     }
 
-    await interaction.deferReply();
+    await interaction.deferReply({ flags: 64 });
 
     try {
       // Obtener el nuevo nombre propuesto
@@ -39,14 +39,12 @@ module.exports = {
 
       // Verificar permisos del ejecutor
       const member = interaction.member;
-      const isAdmin = member.permissions.has(PermissionFlagsBits.Administrator);
-      const isSupportRole = member.roles.cache.some(
-        (role) => role.name === interaction.client.config.supportRole
-      );
+      const permissionHandler = require('../../modules/permissionHandler')(interaction.client);
+      const hasPermission = permissionHandler.canManageTickets(member);
 
-      if (!isAdmin && !isSupportRole) {
+      if (!hasPermission) {
         return await interaction.editReply({
-          content: "❌ No tienes permisos para renombrar este ticket.",
+          content: `❌ Necesitas el rol ${interaction.client.config.supportRole} para renombrar tickets.`
         });
       }
 
@@ -58,7 +56,7 @@ module.exports = {
 
       if (!ticket) {
         return await interaction.editReply({
-          content: "❌ No se encontró un ticket activo asociado a este canal.",
+          content: "❌ No se encontró un ticket activo asociado a este canal."
         });
       }
 
@@ -67,7 +65,7 @@ module.exports = {
 
       if (!ticketNumber) {
         return await interaction.editReply({
-          content: "❌ No se pudo determinar el número de ticket.",
+          content: "❌ No se pudo determinar el número de ticket."
         });
       }
 
@@ -80,21 +78,31 @@ module.exports = {
         "Ticket renombrado por " + interaction.user.tag
       );
 
-      // Registrar en logs
-      ticketSystem.logTicketAction(interaction.guild, {
-        action: "rename",
-        ticket: ticket,
-        user: interaction.user,
-        details: `Nuevo nombre: ${newChannelName}`,
+      // Enviar mensaje en el canal para todos
+      await interaction.channel.send({
+        content: `✅ Ticket renombrado a \`${newChannelName}\` por ${interaction.user}.`
       });
 
+      // Registrar en logs
+      try {
+        ticketSystem.logTicketAction(interaction.guild, {
+          action: "rename",
+          ticket: ticket,
+          user: interaction.user,
+          details: `Nuevo nombre: ${newChannelName}`
+        });
+      } catch (logError) {
+        console.error("Error al registrar acción en logs:", logError);
+      }
+
+      // Responder solo al usuario que ejecutó el comando (ephemeral)
       return await interaction.editReply({
-        content: `✅ Ticket renombrado a \`${newChannelName}\`.`,
+        content: `✅ Ticket renombrado exitosamente a \`${newChannelName}\`.`
       });
     } catch (error) {
       console.error("Error al renombrar ticket:", error);
       return await interaction.editReply({
-        content: "❌ Ha ocurrido un error al renombrar el ticket.",
+        content: "❌ Ha ocurrido un error al renombrar el ticket."
       });
     }
   },

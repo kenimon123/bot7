@@ -59,6 +59,6 @@ module.exports = {
     
     embed.setFooter({ text: 'Para más información sobre un comando, usa /ayuda comando' });
     
-    await interaction.reply({ embeds: [embed], ephemeral: true });
+    await interaction.reply({ embeds: [embed], flags: 64 });
   },
 };

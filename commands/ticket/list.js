@@ -9,7 +9,7 @@ module.exports = {
   category: 'ticket',
   
   async execute(interaction) {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: 64 });
     
     // Verificar permisos
     const supportRole = interaction.guild.roles.cache.find(

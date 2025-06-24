@@ -22,7 +22,7 @@ module.exports = {
     if (!interaction.channel.name.match(/^[a-z]+-\d+$/)) {
       return await interaction.reply({ 
         content: '❌ Este comando solo puede usarse en un canal de ticket.', 
-        ephemeral: true 
+        flags: 64 
       });
     }
     

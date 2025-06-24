@@ -83,7 +83,8 @@ const dataFiles = {
     closeHours: 48,
     exemptCategories: [] 
   },
-  './data/duplicateCache.json': { entries: {}, lastSaved: Date.now() }
+  './data/duplicateCache.json': { entries: {}, lastSaved: Date.now() },
+  './data/ticketLocks.json': { locks: [], lastSaved: Date.now() }
 };
 
 // Crear archivos de datos si no existen
@@ -113,11 +114,6 @@ const client = new Client({
   partials: [Partials.Message, Partials.Channel, Partials.Reaction]
 });
 
-console.log('Cargando eventos del sistema...');
-const eventHandler = require('./handlers/eventHandler');
-eventHandler(client);
-console.log('✅ Eventos cargados correctamente');
-
 // Cargar configuración
 let config = {};
 const configPath = path.join(__dirname, 'config.json');
@@ -131,6 +127,7 @@ if (fs.existsSync(configPath)) {
     ticketCategory: 'TICKETS',
     ticketLogChannel: 'registro-tickets',
     ticketStatsChannel: 'ranking-soporte',
+    maxTicketsPerUser: 3,
     ticketCategories: [
       { name: 'Soporte general', emoji: '🔧', description: 'Ayuda y soporte general', color: '#5865F2', allowedRoles: ['Support Team', 'Moderador', 'Admin'] },
       { name: 'Reportes', emoji: '🔴', description: 'Reportes a usuarios', color: '#ED4245', allowedRoles: ['Support Team', 'Moderador', 'Admin', 'Helper'] },
@@ -448,7 +445,7 @@ client.on('interactionCreate', async interaction => {
           antiDuplicateCache.clear(userId, actionType);
           return interaction.reply({ 
             content: `Por favor espera ${timeLeft.toFixed(1)} segundos antes de usar el comando \`${command.data.name}\` nuevamente.`, 
-            flags: 64 
+            flags: 64
           }).catch(() => {});
         }
       }
@@ -632,163 +629,163 @@ client.on('interactionCreate', async interaction => {
         setTimeout(() => global.processedInteractions.delete(interactionKey), 10000);
         
         // MANEJADOR DE MENÚ DE CATEGORÍAS DE TICKETS
-if (interaction.customId === 'ticket_category') {
-  // Obtener la categoría seleccionada
-  const selectedValue = interaction.values[0]; 
-  
-  const categoryName = client.config.ticketCategories.find(c => 
-    c.name.toLowerCase() === selectedValue || 
-    c.name === selectedValue || 
-    selectedValue.includes(c.name.toLowerCase())
-  )?.name || selectedValue;
-  
-  // Verificar límites de tickets utilizando el módulo correcto
-  const ticketSystem = require('./modules/ticketSystem')(client);
-  const checkLimit = ticketSystem.canCreateTicket(interaction.user.id, interaction.guild.id);
-  
-  if (!checkLimit.allowed) {
-    await interaction.reply({
-      content: `⚠️ ${checkLimit.message}`,
-      flags: 64
-    }).catch(() => {});
-    return;
-  }
-  
-  // Sistema anti-duplicados específico para tickets
-  const antiDuplicate = require('./modules/antiduplicate');
-  const duplicateCheck = antiDuplicate.check(interaction.user.id, 'select_ticket');
-  
-  if (!duplicateCheck.allowed) {
-    await interaction.reply({
-      content: `⚠️ ${duplicateCheck.message}`,
-      flags: 64
-    }).catch(() => {});
-    return;
-  }
-  
-  // Bloquear por 5 segundos para evitar múltiples selecciones
-  antiDuplicate.lock(interaction.user.id, 'select_ticket', 5);
-  
-  // Mostrar modal simplificado con los campos requeridos
-  try {
-    await interaction.showModal({
-      title: `Nuevo Ticket - ${categoryName}`,
-      custom_id: `ticket_modal_simple_${selectedValue}`,
-      components: [
-        {
-          type: 1, // ActionRow
-          components: [
-            {
-              type: 4, // TextInput
-              custom_id: 'minecraft_nick',
-              label: 'Nick',
-              style: 1, // Short input
-              placeholder: 'Tu nombre en el juego',
-              required: true,
-              min_length: 3,
-              max_length: 32
+        if (interaction.customId === 'ticket_category') {
+          // Obtener la categoría seleccionada
+          const selectedValue = interaction.values[0]; 
+          
+          const categoryName = client.config.ticketCategories.find(c => 
+            c.name.toLowerCase() === selectedValue || 
+            c.name === selectedValue || 
+            selectedValue.includes(c.name.toLowerCase())
+          )?.name || selectedValue;
+          
+          // Verificar límites de tickets utilizando el módulo correcto
+          const ticketSystem = require('./modules/ticketSystem')(client);
+          const checkLimit = ticketSystem.canCreateTicket(interaction.user.id, interaction.guild.id);
+          
+          if (!checkLimit.allowed) {
+            await interaction.reply({
+              content: `⚠️ ${checkLimit.message}`,
+              flags: 64
+            }).catch(() => {});
+            return;
+          }
+          
+          // Sistema anti-duplicados específico para tickets
+          const antiDuplicate = require('./modules/antiduplicate');
+          const duplicateCheck = antiDuplicate.check(interaction.user.id, 'select_ticket');
+          
+          if (!duplicateCheck.allowed) {
+            await interaction.reply({
+              content: `⚠️ ${duplicateCheck.message}`,
+              flags: 64
+            }).catch(() => {});
+            return;
+          }
+          
+          // Bloquear por 5 segundos para evitar múltiples selecciones
+          antiDuplicate.lock(interaction.user.id, 'select_ticket', 5);
+          
+          // Mostrar modal simplificado con los campos requeridos
+          try {
+            await interaction.showModal({
+              title: `Nuevo Ticket - ${categoryName}`,
+              custom_id: `ticket_modal_simple_${selectedValue}`,
+              components: [
+                {
+                  type: 1, // ActionRow
+                  components: [
+                    {
+                      type: 4, // TextInput
+                      custom_id: 'minecraft_nick',
+                      label: 'Nick',
+                      style: 1, // Short input
+                      placeholder: 'Tu nombre en el juego',
+                      required: true,
+                      min_length: 3,
+                      max_length: 32
+                    }
+                  ]
+                },
+                {
+                  type: 1, // ActionRow
+                  components: [
+                    {
+                      type: 4, // TextInput
+                      custom_id: 'ticket_details',
+                      label: 'Duda',
+                      style: 2, // Paragraph
+                      placeholder: 'Escribe tu duda o problema aquí',
+                      required: true,
+                      min_length: 10,
+                      max_length: 1000
+                    }
+                  ]
+                }
+              ]
+            });
+          } catch (modalError) {
+            // Liberar el bloqueo en caso de error
+            antiDuplicate.release(interaction.user.id, 'select_ticket');
+            
+            if (modalError.code !== 10062) {
+              console.error('Error al mostrar modal:', modalError);
+              
+              try {
+                await interaction.reply({
+                  content: 'Ocurrió un error al abrir el formulario. Por favor intenta nuevamente.',
+                  flags: 64
+                }).catch(() => {});
+              } catch (replyError) {
+                console.log('No se pudo responder a la interacción de modal:', replyError.message);
+              }
             }
-          ]
-        },
-        {
-          type: 1, // ActionRow
-          components: [
-            {
-              type: 4, // TextInput
-              custom_id: 'ticket_details',
-              label: 'Duda',
-              style: 2, // Paragraph
-              placeholder: 'Escribe tu duda o problema aquí',
-              required: true,
-              min_length: 10,
-              max_length: 1000
-            }
-          ]
+          }
         }
-      ]
-    });
-  } catch (modalError) {
-    // Liberar el bloqueo en caso de error
-    antiDuplicate.release(interaction.user.id, 'select_ticket');
-    
-    if (modalError.code !== 10062) {
-      console.error('Error al mostrar modal:', modalError);
-      
-      try {
-        await interaction.reply({
-          content: 'Ocurrió un error al abrir el formulario. Por favor intenta nuevamente.',
-          flags: 64
-        }).catch(() => {});
-      } catch (replyError) {
-        console.log('No se pudo responder a la interacción de modal:', replyError.message);
-      }
-    }
-  }
-}
         // MENÚ DE CATEGORÍAS PARA MOVER TICKETS
-else if (interaction.customId === 'move_ticket_category') {
-  try {
-    const selectedCategory = interaction.values[0];
-    
-    // Asegurarse de que esta interacción sea de un ticket
-    const ticketSystem = require('./modules/ticketSystem')(client);
-    
-    if (!ticketSystem.isTicketChannel(interaction.channel)) {
-      await interaction.reply({
-        content: '⚠️ Este comando solo puede usarse en canales de tickets.',
-        flags: 64 // Usar flags en lugar de ephemeral
-      }).catch(console.error);
-      return;
-    }
-    
-    // Verificar que el módulo tiene la función moveTicket
-    if (typeof ticketSystem.moveTicket !== 'function') {
-      console.error('La función moveTicket no está definida en el módulo ticketSystem');
-      await interaction.reply({
-        content: '❌ Error interno: Función de mover ticket no implementada. Contacta al administrador.',
-        flags: 64
-      }).catch(console.error);
-      return;
-    }
-    
-    // Defer reply para operaciones que pueden tomar tiempo
-    await interaction.deferReply({ flags: 64 }).catch(console.error);
-    
-    // Mover el ticket usando la función corregida
-    const moveResult = await ticketSystem.moveTicket(
-      interaction.channel, 
-      selectedCategory, 
-      interaction.user
-    );
-    
-    if (moveResult.success) {
-      await interaction.editReply({
-        content: `✅ Ticket movido exitosamente a la categoría: ${selectedCategory}`
-      }).catch(console.error);
-    } else {
-      await interaction.editReply({
-        content: `❌ Error al mover el ticket: ${moveResult.reason || 'Error desconocido'}`
-      }).catch(console.error);
-    }
-  } catch (error) {
-    console.error('Error al mover ticket:', error);
-    
-    try {
-      if (interaction.deferred) {
-        await interaction.editReply({
-          content: '❌ Ocurrió un error al mover el ticket. Error: ' + (error.message || 'Desconocido')
-        }).catch(console.error);
-      } else {
-        await interaction.reply({
-          content: '❌ Ocurrió un error al mover el ticket.',
-          flags: 64
-        }).catch(console.error);
-      }
-    } catch (replyError) {
-      console.log('Error al responder a interacción de mover ticket:', replyError);
-    }
-  }
-}
+        else if (interaction.customId === 'move_ticket_category') {
+          try {
+            const selectedCategory = interaction.values[0];
+            
+            // Asegurarse de que esta interacción sea de un ticket
+            const ticketSystem = require('./modules/ticketSystem')(client);
+            
+            if (!ticketSystem.isTicketChannel(interaction.channel)) {
+              await interaction.reply({
+                content: '⚠️ Este comando solo puede usarse en canales de tickets.',
+                flags: 64
+              }).catch(console.error);
+              return;
+            }
+            
+            // Verificar que el módulo tiene la función moveTicket
+            if (typeof ticketSystem.moveTicket !== 'function') {
+              console.error('La función moveTicket no está definida en el módulo ticketSystem');
+              await interaction.reply({
+                content: '❌ Error interno: Función de mover ticket no implementada. Contacta al administrador.',
+                flags: 64
+              }).catch(console.error);
+              return;
+            }
+            
+            // Defer reply para operaciones que pueden tomar tiempo
+            await interaction.deferReply({ flags: 64 }).catch(console.error);
+            
+            // Mover el ticket usando la función corregida
+            const moveResult = await ticketSystem.moveTicket(
+              interaction.channel, 
+              selectedCategory, 
+              interaction.user
+            );
+            
+            if (moveResult.success) {
+              await interaction.editReply({
+                content: `✅ Ticket movido exitosamente a la categoría: ${selectedCategory}`
+              }).catch(console.error);
+            } else {
+              await interaction.editReply({
+                content: `❌ Error al mover el ticket: ${moveResult.reason || 'Error desconocido'}`
+              }).catch(console.error);
+            }
+          } catch (error) {
+            console.error('Error al mover ticket:', error);
+            
+            try {
+              if (interaction.deferred) {
+                await interaction.editReply({
+                  content: '❌ Ocurrió un error al mover el ticket. Error: ' + (error.message || 'Desconocido')
+                }).catch(console.error);
+              } else {
+                await interaction.reply({
+                  content: '❌ Ocurrió un error al mover el ticket.',
+                  flags: 64
+                }).catch(console.error);
+              }
+            } catch (replyError) {
+              console.log('Error al responder a interacción de mover ticket:', replyError);
+            }
+          }
+        }
         
         // MENÚ DE AYUDA/SOPORTE
         else if (interaction.customId === 'help_menu') {
@@ -881,109 +878,109 @@ else if (interaction.customId === 'move_ticket_category') {
       }
     }
     
-// MODALES - CON SISTEMA ANTI-DUPLICADOS MEJORADO
-else if (interaction.isModalSubmit()) {
-  try {
-    // Modales de tickets
-    if (interaction.customId.startsWith('ticket_modal_simple_')) {
-      // Usar el nuevo sistema anti-duplicados mejorado
-      const antiDuplicate = require('./modules/antiduplicate');
-      
-      // Verificar si ya está creando un ticket
-      const checkResult = antiDuplicate.check(interaction.user.id, 'create_ticket');
-      if (!checkResult.allowed) {
-        try {
-          await interaction.reply({
-            content: `⚠️ ${checkResult.message}`,
-            flags: 64  // Ephemeral
-          }).catch(() => {});
-        } catch (e) {
-          console.log('Error al responder a interacción duplicada:', e.message);
-        }
-        return;
-      }
-      
-      // Bloquear por 10 segundos
-      antiDuplicate.lock(interaction.user.id, 'create_ticket', 10);
-      
+    // MODALES - CON SISTEMA ANTI-DUPLICADOS MEJORADO
+    else if (interaction.isModalSubmit()) {
       try {
-        await interaction.deferReply({ flags: 64 }).catch(() => {});
-        
-        const category = interaction.customId.replace('ticket_modal_simple_', '');
-        const minecraftNick = interaction.fields.getTextInputValue('minecraft_nick');
-        const details = interaction.fields.getTextInputValue('ticket_details');
-        
-        const ticketSystem = require('./modules/ticketSystem')(client);
-        
-        const result = await ticketSystem.createTicket({
-          user: interaction.user,
-          guild: interaction.guild,
-          category: category,
-          minecraftNick: minecraftNick,
-          details: details
-        });
-        
-        if (result.success) {
-          await interaction.editReply({
-            content: `✅ Tu ticket ha sido creado: <#${result.channelId}>`
-          }).catch(e => {
-            console.error("Error al responder sobre ticket creado:", e);
-          });
+        // Modales de tickets
+        if (interaction.customId.startsWith('ticket_modal_simple_')) {
+          // Usar el nuevo sistema anti-duplicados mejorado
+          const antiDuplicate = require('./modules/antiduplicate');
           
-          // Liberar el bloqueo después de éxito
-          setTimeout(() => {
-            antiDuplicate.release(interaction.user.id, 'create_ticket');
-          }, 2000);
-        } else {
-          await interaction.editReply({
-            content: `❌ Error al crear el ticket: ${result.message || result.reason || 'Error desconocido'}`
-          }).catch(e => {
-            console.error("Error al responder sobre fallo de ticket:", e);
-          });
+          // Verificar si ya está creando un ticket
+          const checkResult = antiDuplicate.check(interaction.user.id, 'create_ticket');
+          if (!checkResult.allowed) {
+            try {
+              await interaction.reply({
+                content: `⚠️ ${checkResult.message}`,
+                flags: 64  // Ephemeral
+              }).catch(() => {});
+            } catch (e) {
+              console.log('Error al responder a interacción duplicada:', e.message);
+            }
+            return;
+          }
           
-          // Liberar el bloqueo inmediatamente en caso de error
-          antiDuplicate.release(interaction.user.id, 'create_ticket');
-        }
-      } catch (error) {
-        // Liberar el bloqueo en caso de error
-        antiDuplicate.release(interaction.user.id, 'create_ticket');
-        
-        if (error.code !== 10062 && error.code !== 40060) {
-          console.error('Error al procesar modal de ticket:', error);
+          // Bloquear por 10 segundos
+          antiDuplicate.lock(interaction.user.id, 'create_ticket', 10);
           
           try {
-            if (interaction.deferred) {
+            await interaction.deferReply({ flags: 64 }).catch(() => {});
+            
+            const category = interaction.customId.replace('ticket_modal_simple_', '');
+            const minecraftNick = interaction.fields.getTextInputValue('minecraft_nick');
+            const details = interaction.fields.getTextInputValue('ticket_details');
+            
+            const ticketSystem = require('./modules/ticketSystem')(client);
+            
+            const result = await ticketSystem.createTicket({
+              user: interaction.user,
+              guild: interaction.guild,
+              category: category,
+              minecraftNick: minecraftNick,
+              details: details
+            });
+            
+            if (result.success) {
               await interaction.editReply({
-                content: '❌ Ocurrió un error al procesar el formulario.'
-              }).catch(() => {});
+                content: `✅ Tu ticket ha sido creado: <#${result.channelId}>`
+              }).catch(e => {
+                console.error("Error al responder sobre ticket creado:", e);
+              });
+              
+              // Liberar el bloqueo después de éxito
+              setTimeout(() => {
+                antiDuplicate.release(interaction.user.id, 'create_ticket');
+              }, 2000);
             } else {
-              await interaction.reply({
-                content: '❌ Ocurrió un error al procesar el formulario.',
-                flags: 64
-              }).catch(() => {});
+              await interaction.editReply({
+                content: `❌ Error al crear el ticket: ${result.message || result.reason || 'Error desconocido'}`
+              }).catch(e => {
+                console.error("Error al responder sobre fallo de ticket:", e);
+              });
+              
+              // Liberar el bloqueo inmediatamente en caso de error
+              antiDuplicate.release(interaction.user.id, 'create_ticket');
             }
-          } catch (e) {
-            console.log('Error al responder a modal:', e.message);
+          } catch (error) {
+            // Liberar el bloqueo en caso de error
+            antiDuplicate.release(interaction.user.id, 'create_ticket');
+            
+            if (error.code !== 10062 && error.code !== 40060) {
+              console.error('Error al procesar modal de ticket:', error);
+              
+              try {
+                if (interaction.deferred) {
+                  await interaction.editReply({
+                    content: '❌ Ocurrió un error al procesar el formulario.'
+                  }).catch(() => {});
+                } else {
+                  await interaction.reply({
+                    content: '❌ Ocurrió un error al procesar el formulario.',
+                    flags: 64
+                  }).catch(() => {});
+                }
+              } catch (e) {
+                console.log('Error al responder a modal:', e.message);
+              }
+            }
           }
         }
-      }
-    }
-    // Aquí puedes añadir manejo para otros tipos de modales
-  } catch (error) {
-    console.error('Error general al procesar modal:', error);
-    try {
-      if (!interaction.replied && !interaction.deferred) {
-        await interaction.reply({
-          content: '❌ Ocurrió un error al procesar el formulario.',
-          flags: 64
-        }).catch(() => {});
-      } else if (interaction.deferred) {
-        await interaction.editReply({
-          content: '❌ Ocurrió un error al procesar el formulario.'
-        }).catch(() => {});
-      }
-    } catch (e) {
-      console.log('Error fatal al responder a modal:', e.message);
+        // Aquí puedes añadir manejo para otros tipos de modales
+      } catch (error) {
+        console.error('Error general al procesar modal:', error);
+        try {
+          if (!interaction.replied && !interaction.deferred) {
+            await interaction.reply({
+              content: '❌ Ocurrió un error al procesar el formulario.',
+              flags: 64
+            }).catch(() => {});
+          } else if (interaction.deferred) {
+            await interaction.editReply({
+              content: '❌ Ocurrió un error al procesar el formulario.'
+            }).catch(() => {});
+          }
+        } catch (e) {
+          console.log('Error fatal al responder a modal:', e.message);
         }
       } finally {
         // Asegurarse de que la limpieza siempre se ejecute
@@ -1056,10 +1053,11 @@ process.on('unhandledRejection', (reason, promise) => {
   console.error('Rechazo no manejado:', reason);
 });
 
-// Cargar eventos UNA SOLA VEZ (fuera de cualquier evento)
+// Cargar eventos una sola vez (FUERA de cualquier evento)
+console.log('Cargando eventos del sistema...');
 const eventHandler = require('./handlers/eventHandler');
 eventHandler(client);
-console.log('Eventos cargados una sola vez');
+console.log('✅ Eventos cargados correctamente');
 
 // Iniciar sesión con el token
 client.login(process.env.TOKEN)

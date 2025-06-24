@@ -1,5 +1,5 @@
 const fs = require("fs");
-const path = require("path");
+const pathModule = require("path");
 const {
   ChannelType,
   PermissionFlagsBits,
@@ -11,26 +11,25 @@ const {
 } = require("discord.js");
 
 module.exports = (client) => {
-  // Rutas de los archivos
+  // Rutas de los archivos - usar pathModule en lugar de path
   const ticketReminders = require("./ticketReminders");
-  const ticketLock = require('./ticketLock');
-  const ticketsPath = path.join(__dirname, "../data/tickets.json");
-  const statsPath = path.join(__dirname, "../data/ticketStats.json");
+  const ticketsPath = pathModule.join(__dirname, "../data/tickets.json");
+  const statsPath = pathModule.join(__dirname, "../data/ticketStats.json");
 
   // Validar si un canal es un ticket (versión mejorada)
-const isTicketChannel = (channel) => {
-  if (!channel) return false;
-  
-  // Patrones de nombre de canales de tickets
-  const patterns = [
-    /^.+-\d+$/, // Formato como "soporte-general-123" o "ticket-123"
-    /^ticket-\d+$/, // Formato estándar "ticket-123"
-    /^soporte-\d+$/ // Formato alternativo "soporte-123"
-  ];
-  
-  // Verificar si el nombre del canal coincide con alguno de los patrones
-  return channel.name && patterns.some(pattern => pattern.test(channel.name));
-};
+  const isTicketChannel = (channel) => {
+    if (!channel) return false;
+    
+    // Patrones de nombre de canales de tickets
+    const patterns = [
+      /^.+-\d+$/, // Formato como "soporte-general-123" o "ticket-123"
+      /^ticket-\d+$/, // Formato estándar "ticket-123"
+      /^soporte-\d+$/ // Formato alternativo "soporte-123"
+    ];
+    
+    // Verificar si el nombre del canal coincide con alguno de los patrones
+    return channel.name && patterns.some(pattern => pattern.test(channel.name));
+  };
 
   // Rastrear solicitudes recientes para evitar duplicados
   const recentTicketRequests = new Map();
@@ -403,6 +402,7 @@ const createTicket = async (options) => {
     }
 
     // SISTEMA DE BLOQUEO CRÍTICO - Verificar si el usuario ya tiene un bloqueo activo
+    const ticketLock = require('./ticketLock');
     if (ticketLock.isLocked(user.id)) {
       console.log(`[TICKET] Creación bloqueada para ${user.tag || user.username} - tiene un bloqueo activo`);
       return {
@@ -436,12 +436,9 @@ const createTicket = async (options) => {
       };
     }
     
-    // Verificar límite de tickets por usuario (configurable)
-    const maxTicketsPerUser = client.config.maxTicketsPerUser || 3;
-    
-    // Cargar tickets existentes
+    // Preparamos los datos del ticket
     const data = loadTickets();
-    
+
     // VERIFICACIÓN ADICIONAL: comprobar si ya existe un ticket abierto para este usuario en esta categoría
     const existingTicket = data.tickets.find(
       t => t.userId === user.id && 
@@ -458,6 +455,9 @@ const createTicket = async (options) => {
         message: `Ya tienes un ticket abierto en esta categoría: <#${existingTicket.channelId}>`
       };
     }
+    
+    // Verificar límite de tickets por usuario (configurable)
+    const maxTicketsPerUser = client.config.maxTicketsPerUser || 3;
     
     // Contar tickets abiertos del usuario
     const userOpenTickets = data.tickets.filter(
@@ -623,6 +623,14 @@ const createTicket = async (options) => {
       };
     }
 
+    // Configurar permisos específicos por categoría
+    try {
+      await setupCategoryPermissions(channel, categoryType, guild);
+    } catch (permError) {
+      console.error("Error al configurar permisos:", permError);
+      // No fallar por esto, continuar
+    }
+
     // Guardar información del ticket
     const newTicket = {
       id: ticketNumber,
@@ -752,11 +760,7 @@ const createTicket = async (options) => {
 
     // Actualizar estadísticas
     try {
-      updateTicketStats(guild.id, {
-        action: "create",
-        userId: user.id,
-        category: categoryType,
-      });
+      updateUserStats(user.id, "create", guild.id);
     } catch (statsError) {
       console.error("Error al actualizar estadísticas:", statsError);
       // No fallar por esto, continuar
@@ -775,8 +779,13 @@ const createTicket = async (options) => {
     };
   } catch (error) {
     // Asegurarse de liberar el bloqueo en caso de error
-    if (user && user.id) {
-      ticketLock.releaseLock(user.id);
+    try {
+      const ticketLock = require('./ticketLock');
+      if (user && user.id) {
+        ticketLock.releaseLock(user.id);
+      }
+    } catch (releaseError) {
+      console.error("Error al liberar bloqueo de ticket:", releaseError);
     }
     
     console.error("Error crítico al crear ticket:", error);
@@ -787,6 +796,7 @@ const createTicket = async (options) => {
     };
   }
 };
+
 // Sistema de tickets - función de cierre
 const closeTicket = async (channel, closedBy) => {
   try {

@@ -17,11 +17,11 @@ module.exports = {
     if (!licenseRole || !interaction.member.roles.cache.has(licenseRole.id)) {
       return interaction.reply({ 
         content: `❌ Necesitas el rol ${interaction.client.config.licenseRole} para usar este comando.`,
-        ephemeral: true 
+        flags: 64 
       });
     }
     
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: 64 });
     
     const licenseSystem = require('../../modules/licenseSystem')(interaction.client);
     const data = licenseSystem.loadLicenses();
